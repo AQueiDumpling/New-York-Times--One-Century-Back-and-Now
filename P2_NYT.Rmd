@@ -1,0 +1,192 @@
+---
+title: "Part2 New York Times"
+author: "Jue Zhou"
+date: "11/21/2019"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      error = FALSE)
+
+library(tidyverse)
+library(here)
+library(knitr)
+library(wordcloud2)
+
+```
+
+## New York Times: 100 Years Ago and Now
+
+How were the newspapers like 100 years ago? What articles did people publish and read? What events were they talking about? Here I use one of the New York Times Developer APIs, Archive API, to explore into newspapers 100 years ago.
+
+This API returns an array of NYT articles for a given month, going back to 1851. It is very useful to build a unique database of NYT article metadata. More detailed introduction of this API can be accessed [here](https://developer.nytimes.com/docs/archive-product/1/overview).
+
+Here I compare distribution of different sections, word count for each article, and the most frequent keywords appearing in November 1919 and November 2019. You can also draw more comparisons using any month you like, or to look into the news reports by NYT around certain social events. 
+
+```{r nyt, cache=TRUE}
+# define a function to create the url and use NYT Archive API to return the array of articles of a certain month
+get_archive <- function(year, month) {
+  nyt_key <- getOption("nyt_key")
+  apiurl <- str_c(
+    "https://api.nytimes.com/svc/archive/v1/",
+    year,
+    "/",
+    month,
+    ".",
+    "json?",
+    "api-key=",
+    nyt_key
+  )
+  archive <- apiurl %>%
+    httr::GET() %>%
+    httr::content() %>%
+    as_tibble() 
+}
+
+```
+
+## Archive of November 2019 and 1919
+
+Below is the data obtained and cleared, including snippets of each article published in November, the keywords (categories and content), the published date, what section or type it is in, and the word count for each article.
+```{r 2019}
+# fetch the NYT archive in 2019.11
+archive_2019 <- get_archive(2019, 11)
+archive_2019 <- archive_2019 %>%
+  unnest_longer(response) %>%
+  unnest_wider(response) %>%
+  select(snippet,
+         keywords,
+         pub_date,
+         news_desk,
+         section_name,
+         word_count)
+
+# unnest the list of keywords for each article
+archive_2019clear <- archive_2019[-c(1),] %>%
+  unnest_longer(keywords) %>%
+  unnest_wider(keywords) %>%
+  select(-c(4:6)) %>%
+  mutate(pub_date = str_sub(pub_date, 1, 10))
+# save the cleared data
+saveRDS(archive_2019clear, file = "data/NYTarchive_2019.rds")
+
+## deduplicate the data and transform to one line for each article
+article_2019 <- archive_2019clear %>%
+  distinct(snippet, .keep_all = TRUE) %>%
+  select(snippet, pub_date, news_desk, section_name, word_count)
+saveRDS(article_2019, file = "data/NYTarticle_2019.rds")
+
+glimpse(archive_2019clear)
+glimpse(article_2019)
+```
+
+```{r 1919}
+# fetch the data for 1919.11
+archive2 <- get_archive(1919, 11)
+archive_1919 <- archive2 %>%
+  unnest_longer(response) %>%
+  unnest_wider(response) %>%
+  select(snippet, keywords, pub_date, type_of_material, word_count)
+
+# unnest lists in keywords and keep useful columns
+archive_1919clear <- archive_1919[-c(1),] %>%
+  unnest_longer(keywords) %>%
+  unnest_wider(keywords) %>%
+  select(snippet, name, value, pub_date, type_of_material, word_count) %>%
+  mutate(pub_date = str_sub(pub_date, 1, 10))
+
+# save the data
+saveRDS(archive_1919clear, file = "data/NYTarchive_1919.rds")
+
+## deduplicate the data and transform to one line for each article
+article_1919 <- archive_1919clear %>%
+  distinct(snippet, .keep_all = TRUE) %>%
+  select(snippet, pub_date, type_of_material, word_count)
+saveRDS(article_1919, file = "data/NYTarticle_1919.rds")
+
+
+glimpse(archive_1919clear)
+glimpse(article_1919)
+```
+
+## Distribution of Sections and Word Count
+```{r distribution}
+article_1919 %>%
+  group_by(type_of_material) %>%
+  summarise(word_count = mean(word_count), number = n()) %>%
+  mutate(percent = number / sum(number) * 100) %>%
+  rename(
+    "Type of Material" = "type_of_material",
+    "Word Count" = "word_count",
+    "Number" = "number",
+    "Percent(%)" = "percent"
+  ) %>%
+  kable(caption = "Distribution of Sections, New York Times (1919.11)", digits = 2)
+
+article_2019 %>%
+  group_by(section_name) %>%
+  summarise(word_count = mean(word_count), number = n()) %>%
+  mutate(percent = number / sum(number) * 100) %>%
+  rename(
+    "Section Name" = "section_name",
+    "Word Count" = "word_count",
+    "Number" = "number",
+    "Percent(%)" = "percent"
+  ) %>%
+  kable(caption = "Distribution of Sections, New York Times (2019.11)", digits = 2)
+
+```
+
+These two tables above shows the distribution of different sections of New York Times in 1919 and 2019. 
+Two trends are prominent:
+
+- in 2019, there have been a lot more different sections than 1919. Some sections in 1919, for example marriage announcements, have already disappeared.
+
+- the length of each article has also increased, which might reflects the change in the role of media.
+
+## Keywords for 1919 and 2019
+
+Below are two graphs showing the most frequent keywords appearing in the NYT articles in 1919 and 2019. 
+
+The former, obviously, is a time of Bolsheviki Revolution and post World War I international relationships, and the latter, is a time of elections, US-China relationships and waves of transnational social movements.
+
+```{r keywordsfor1919}
+# count the frequency of keywords in 1919 NYT archive, and create a corresponding word cloud
+archive_1919clear %>%
+  count(value) %>%
+  drop_na() %>%
+  wordcloud2(
+    size = 1,
+    backgroundColor = "white",
+    color = "random-light",
+    minRotation = -pi / 6,
+    maxRotation = pi / 4,
+    minSize = 10,
+    rotateRatio = 0.5
+  )
+  
+```
+
+
+```{r keywordfor2019}
+# count the frequency of keywords in 2019 NYT archive, and create a corresponding word cloud
+archive_2019clear %>%
+  count(value) %>%
+  drop_na() %>%
+  wordcloud2(
+    size = 1,
+    backgroundColor = "white",
+    color = "random-light",
+    minRotation = -pi / 6,
+    maxRotation = pi / 4,
+    minSize = 10,
+    rotateRatio = 0.5
+  )
+
+```
+
+
+```{r, include=FALSE}
+devtools::session_info()
+```

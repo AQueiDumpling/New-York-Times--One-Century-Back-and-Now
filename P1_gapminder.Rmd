@@ -1,0 +1,80 @@
+---
+title: "Exploring the gapminder"
+author: "Jue Zhou"
+date: "11/21/2019"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      error = FALSE)
+library(here)
+library(gapminder)
+library(geonames)
+library(tidyverse)
+library(countrycode)
+library(dplyr)
+
+```
+
+## Gapminder
+
+Here I use the `gapminder` data to explore the relationship between population density and life expectency.
+
+The population density is calculated using the information of 'area in squre kms' from `geonames` package.
+```{r countryInfo}
+glimpse(gapminder)
+# access country information via geonames API
+countryInfo <- GNcountryInfo()
+glimpse(countryInfo)
+```
+
+```{r merge}
+# recode the country name in gapminder to match it with countryInfo
+gapminder_new <- gapminder %>% 
+  mutate(iso3c = countrycode(country, origin = 'country.name', destination = 'iso3c')) %>% 
+  # merge countryInfo into gapminder
+  left_join(countryInfo, by = c("iso3c" = "isoAlpha3")) %>% 
+  # select the columns to use
+  select(country, year, lifeExp, pop, areaInSqKm, continentName) %>% 
+  # calculate the population density for each observation
+  mutate(areaInSqKm = as.numeric(areaInSqKm)) %>% 
+  mutate(popden = pop/areaInSqKm) %>% 
+  rename(Continent = "continentName")
+```
+
+
+```{r graph1}
+# Produce an updated graph using population density
+gapminder_new %>%
+  ggplot(aes(log(popden), lifeExp)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  labs(x = "Population density(logged) per square km",
+       y = "Average Life Expectancy",
+       title = "Relationship between Life Expectancy and Population Density") +
+  theme_minimal()
+```
+
+This graph above shows the relationship between population density and life expectancy. Generally, as population density increases, life expectancy increases.
+
+```{r graph2}
+# Compare the relationship across continents
+gapminder_new %>%
+  group_by(Continent) %>%
+  ggplot(aes(log(popden), lifeExp, color = Continent)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, method = "loess") +
+  labs(x = "Population density(logged) per square km",
+       y = "Average Life Expectancy",
+       title = "Relationship between Life Expectancy and Population Density") +
+  theme_minimal()
+  
+```
+
+The second graph shows the relationship between population density and life expectancy across continents. For Africa, Asia and South America, the positive relationship between population density and life expectancy sustains, which indicates this relationship might mainly apply to developing countries.
+
+```{r, include=FALSE}
+devtools::session_info()
+```
